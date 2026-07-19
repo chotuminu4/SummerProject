@@ -1,0 +1,1003 @@
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flood Prediction</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+    /* =========================================================
+       Design tokens
+       ========================================================= */
+    :root,
+    [data-theme="dark"] {
+        --bg: #0a111f;
+        --bg-2: #0e1728;
+        --panel: #101b30;
+        --panel-2: #0c1524;
+        --border: #223252;
+        --border-soft: #1a2740;
+        --text: #e7edf7;
+        --text-muted: #8b98b4;
+        --text-dim: #5b6784;
+        --accent: #38bdf8;
+        --accent-soft: rgba(56, 189, 248, 0.14);
+        --danger: #f5a623;
+        --safe: #34d399;
+        --rain: rgba(180, 210, 230, 0.9);
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+        --font-display: "Space Grotesk", sans-serif;
+        --font-body: "IBM Plex Sans", sans-serif;
+        --font-mono: "IBM Plex Mono", monospace;
+    }
+
+    [data-theme="light"] {
+        --bg: #eef2f8;
+        --bg-2: #e5ebf4;
+        --panel: #ffffff;
+        --panel-2: #f4f7fb;
+        --border: #d6dfec;
+        --border-soft: #e4eaf3;
+        --text: #16202f;
+        --text-muted: #5a6a84;
+        --text-dim: #93a0b6;
+        --accent: #0f8fc9;
+        --accent-soft: rgba(15, 143, 201, 0.1);
+        --danger: #c9761a;
+        --safe: #1f9d73;
+        --rain: rgba(60, 100, 140, 0.55);
+        --shadow: 0 20px 50px rgba(30, 50, 80, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        background: radial-gradient(ellipse at top, var(--bg-2), var(--bg) 60%);
+        color: var(--text);
+        font-family: var(--font-body);
+        transition: background-color .35s ease, color .35s ease;
+    }
+
+    ::selection { background: var(--accent-soft); color: var(--text); }
+
+    /* =========================================================
+       Ambient layers
+       ========================================================= */
+    #rain-canvas {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 1;
+        opacity: .8;
+    }
+
+    .cloud-layer {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+        z-index: 0;
+    }
+
+    .cloud {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(40px);
+        opacity: .35;
+        background: radial-gradient(circle, var(--accent-soft), transparent 70%);
+    }
+
+    .cloud.c1 { width: 480px; height: 220px; top: -80px; left: -100px; animation: drift 38s linear infinite; }
+    .cloud.c2 { width: 620px; height: 260px; top: 10%; right: -180px; animation: drift 52s linear infinite reverse; opacity: .22; }
+
+    @keyframes drift {
+        0%   { transform: translateX(0); }
+        50%  { transform: translateX(60px); }
+        100% { transform: translateX(0); }
+    }
+
+    .lightning-flash {
+        position: fixed;
+        inset: 0;
+        background: #cfe6ff;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 2;
+    }
+    .lightning-flash.flash {
+        animation: strike .6s ease-out;
+    }
+    @keyframes strike {
+        0%   { opacity: 0; }
+        8%   { opacity: .55; }
+        14%  { opacity: 0.05; }
+        20%  { opacity: .35; }
+        30%  { opacity: 0; }
+        100% { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .cloud, .lightning-flash.flash { animation: none !important; }
+    }
+
+    /* =========================================================
+       Navbar
+       ========================================================= */
+    .navbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 32px;
+        background: color-mix(in srgb, var(--bg) 78%, transparent);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--border-soft);
+    }
+
+    .nav-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: .01em;
+    }
+
+    .nav-brand .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 12px var(--accent);
+    }
+
+    .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        font-size: 14px;
+    }
+
+    .nav-links a {
+        color: var(--text-muted);
+        text-decoration: none;
+        padding: 6px 2px;
+        border-bottom: 1px solid transparent;
+        transition: color .2s ease, border-color .2s ease;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+    .nav-links a.active { color: var(--accent); border-color: var(--accent); }
+
+    .nav-user {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--text-dim);
+        padding: 4px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+    }
+
+    .theme-toggle {
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        transition: transform .2s ease, border-color .2s ease;
+    }
+    .theme-toggle:hover { transform: translateY(-1px); border-color: var(--accent); }
+
+    /* =========================================================
+       Page / panel
+       ========================================================= */
+    .page {
+        position: relative;
+        z-index: 3;
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 48px 24px 80px;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+    }
+
+    .panel {
+        background: color-mix(in srgb, var(--panel) 92%, transparent);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 32px 36px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(6px);
+    }
+
+    .panel.wide { width: 100%; }
+
+    .eyebrow {
+        display: inline-block;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+        border-radius: 999px;
+        padding: 4px 12px;
+        margin-bottom: 14px;
+    }
+
+    .title-hero {
+        font-family: var(--font-display);
+        font-weight: 700;
+        margin: 0 0 8px;
+        letter-spacing: -0.01em;
+    }
+
+    .panel p { color: var(--text-muted); line-height: 1.55; }
+
+    /* =========================================================
+       Form
+       ========================================================= */
+    .section-label {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin: 28px 0 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px dashed var(--border);
+    }
+    .section-label:first-of-type { margin-top: 22px; }
+
+    .field-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px 18px;
+    }
+
+    .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .field label {
+        font-size: 12.5px;
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .field input {
+        font-family: var(--font-mono);
+        font-size: 14px;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 11px 13px;
+        outline: none;
+        transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+
+    .field input::placeholder { color: var(--text-dim); }
+
+    .field input:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+
+    .field input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .field input.invalid {
+        border-color: var(--danger);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+    }
+
+    .form-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border-soft);
+    }
+
+    .hint {
+        font-size: 12.5px;
+        color: var(--text-dim);
+        font-family: var(--font-mono);
+    }
+
+    .btn {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 14.5px;
+        letter-spacing: .01em;
+        color: #04121c;
+        background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 75%, #0ea5e9));
+        border: none;
+        border-radius: 10px;
+        padding: 12px 26px;
+        cursor: pointer;
+        box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 35%, transparent);
+        transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    .btn:active { transform: translateY(0); }
+
+    /* =========================================================
+       Result panel
+       ========================================================= */
+    .result-panel {
+        display: none;
+    }
+    .result-panel.show {
+        display: block;
+        animation: rise .45s ease both;
+    }
+    @keyframes rise {
+        from { opacity: 0; transform: translateY(10px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+        flex-wrap: wrap;
+    }
+
+    .risk-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        padding: 6px 14px;
+        border-radius: 999px;
+        margin-bottom: 10px;
+    }
+    .risk-badge .pip { width: 7px; height: 7px; border-radius: 50%; }
+    .risk-badge.low { color: var(--safe); background: color-mix(in srgb, var(--safe) 14%, transparent); border: 1px solid color-mix(in srgb, var(--safe) 40%, transparent); }
+    .risk-badge.low .pip { background: var(--safe); box-shadow: 0 0 8px var(--safe); }
+    .risk-badge.high { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
+    .risk-badge.high .pip { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+    .result-verdict {
+        font-family: var(--font-display);
+        font-size: 26px;
+        font-weight: 700;
+        margin: 0 0 6px;
+    }
+
+    .result-copy { color: var(--text-muted); max-width: 44ch; line-height: 1.55; }
+
+    /* Gauge */
+    .gauge-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 200px;
+    }
+    .gauge-svg { width: 200px; height: 130px; overflow: visible; }
+    .gauge-track {
+        fill: none;
+        stroke: var(--border);
+        stroke-width: 14;
+        stroke-linecap: round;
+    }
+    .gauge-fill {
+        fill: none;
+        stroke: var(--safe);
+        stroke-width: 14;
+        stroke-linecap: round;
+        stroke-dasharray: 100 100;
+        stroke-dashoffset: 100;
+        transition: stroke-dashoffset 1s cubic-bezier(.22,1,.36,1), stroke 1s ease;
+    }
+    .gauge-needle {
+        stroke: var(--text);
+        stroke-width: 3;
+        stroke-linecap: round;
+        transform-origin: 100px 100px;
+        transform: rotate(-90deg);
+        transition: transform 1s cubic-bezier(.22,1,.36,1);
+    }
+    .gauge-hub { fill: var(--text); }
+    .gauge-value {
+        font-family: var(--font-mono);
+        font-size: 28px;
+        font-weight: 500;
+        margin-top: -6px;
+    }
+    .gauge-label {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+    }
+
+    .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 12px;
+        margin-top: 26px;
+    }
+    .stat {
+        background: var(--panel-2);
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        padding: 12px 14px;
+    }
+    .stat .stat-label {
+        font-family: var(--font-mono);
+        font-size: 10.5px;
+        letter-spacing: .07em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        display: block;
+        margin-bottom: 4px;
+    }
+    .stat .stat-value {
+        font-family: var(--font-mono);
+        font-size: 15px;
+        color: var(--text);
+    }
+
+    .result-footer {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 26px;
+        padding-top: 18px;
+        border-top: 1px solid var(--border-soft);
+    }
+
+    .btn-ghost {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--text-muted);
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 18px;
+        cursor: pointer;
+        transition: border-color .18s ease, color .18s ease;
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--text); }
+
+    /* =========================================================
+       Footer
+       ========================================================= */
+    .site-footer {
+        position: relative;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 22px 16px 30px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--text-dim);
+    }
+    .footer-dot { opacity: .5; }
+
+    /* =========================================================
+       Responsive
+       ========================================================= */
+    @media (max-width: 760px) {
+        .navbar { padding: 14px 18px; flex-wrap: wrap; gap: 10px; }
+        .field-grid { grid-template-columns: repeat(2, 1fr); }
+        .panel { padding: 24px 20px; }
+    }
+    @media (max-width: 480px) {
+        .field-grid { grid-template-columns: 1fr; }
+        .result-header { flex-direction: column; }
+    }
+</style>
+</head>
+<body data-rain="light">
+
+<canvas id="rain-canvas"></canvas>
+<div class="cloud-layer">
+    <div class="cloud c1"></div>
+    <div class="cloud c2"></div>
+</div>
+<div class="lightning-flash"></div>
+
+<nav class="navbar">
+    <div class="nav-brand"><span class="dot"></span>Floods Prediction</div>
+    <div class="nav-links">
+        <a href="/" class="">Home</a>
+        <a href="/predict" class="active">Predict Floods</a>
+
+            <a href="/history" class="">History</a>
+            <span class="nav-user">abc</span>
+            <a href="/logout">Log out</a>
+
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle light and dark theme">
+            <span class="theme-toggle-icon">🌙</span>
+        </button>
+    </div>
+</nav>
+
+
+<div class="page">
+
+    <div class="panel wide">
+        <span class="eyebrow">Enter Readings</span>
+        <h2 class="title-hero" style="font-size:28px;">Weather &amp; Rainfall Details</h2>
+        <p style="margin-bottom:0;">Fill in each field with the local values for the period you want to assess.</p>
+
+        <form id="predict-form" action="/predict" method="POST" novalidate>
+            <input id="csrf_token" name="csrf_token" type="hidden" value="IjQ3MmI2MjJhYTMxMWY4OGUwYTJlYWU1MzY3MDI1MTZhZWI4M2Y3YTYi.alsVzA.rvoOYAA0EXC9ARmTMijmasbN0gg">
+
+            <div class="section-label">Weather conditions</div>
+            <div class="field-grid">
+                <div class="field">
+                    <label for="Temp">Temperature (°C)</label>
+                    <input id="Temp" name="Temp" placeholder="Average Temperature" required step="any" type="text" value="">
+                </div>
+                <div class="field">
+                    <label for="Humidity">Humidity (%)</label>
+                    <input id="Humidity" name="Humidity" placeholder="Humidity Percentage (%)" required step="any" type="text" value="">
+                </div>
+                <div class="field">
+                    <label for="CloudCover">Cloud Cover (%)</label>
+                    <input id="CloudCover" name="CloudCover" placeholder="Cloud Cover Percentage (%)" required step="any" type="text" value="">
+                </div>
+            </div>
+
+            <div class="section-label">Rainfall totals</div>
+            <div class="field-grid">
+                <div class="field">
+                    <label for="Annual">Annual Rain Fall (mm)</label>
+                    <input id="Annual" name="Annual" placeholder="Enter Annual Rain Fall in mm" required step="any" type="text" value="">
+                </div>
+                <div class="field">
+                    <label for="JanFeb">Jan-Feb Rainfall (mm)</label>
+                    <input id="JanFeb" name="JanFeb" placeholder="Jan-Feb Rainfall in mm" required step="any" type="text" value="">
+                </div>
+                <div class="field">
+                    <label for="MarMay">March-May Rainfall (mm)</label>
+                    <input id="MarMay" name="MarMay" placeholder="March-May Rainfall in mm" required step="any" type="text" value="">
+                </div>
+                <div class="field">
+                    <label for="JunSep">June-September Rainfall (mm)</label>
+                    <input id="JunSep" name="JunSep" placeholder="June-September Rainfall in mm" required step="any" type="text" value="">
+                </div>
+                <div class="field">
+                    <label for="OctDec">Oct-Dec Rainfall (mm)</label>
+                    <input id="OctDec" name="OctDec" placeholder="Oct-Dec Rainfall in mm" required step="any" type="text" value="">
+                </div>
+                <div class="field">
+                    <label for="AvgJune">Average June Rainfall (mm)</label>
+                    <input id="AvgJune" name="AvgJune" placeholder="Average June Rainfall in mm" required step="any" type="text" value="">
+                </div>
+            </div>
+
+            <div class="section-label">Sub-division rainfall</div>
+            <div class="field-grid">
+                <div class="field">
+                    <label for="Sub">Sub-division Rainfall (mm)</label>
+                    <input id="Sub" name="Sub" placeholder="Sub-division Rainfall in mm" required step="any" type="text" value="">
+                </div>
+            </div>
+
+            <div class="form-footer">
+                <span class="hint">All fields required</span>
+                <input class="btn" id="submit" name="submit" type="submit" value="Predict">
+            </div>
+
+        </form>
+    </div>
+
+    <div class="panel wide result-panel" id="result-panel" data-gauge data-risk="low" data-value="0">
+        <span class="eyebrow">Assessment</span>
+        <div class="result-header">
+            <div>
+                <span class="risk-badge low" id="risk-badge"><span class="pip"></span><span id="risk-badge-text">Low risk</span></span>
+                <h2 class="result-verdict" id="result-verdict">Conditions look manageable</h2>
+                <p class="result-copy" id="result-copy">Based on the readings you entered, rising-water risk looks limited for this period.</p>
+            </div>
+            <div class="gauge-wrap">
+                <svg class="gauge-svg" viewBox="0 0 200 120">
+                    <path class="gauge-track" d="M20,100 A80,80 0 0 1 180,100" pathLength="100"></path>
+                    <path class="gauge-fill" id="gauge-fill" d="M20,100 A80,80 0 0 1 180,100" pathLength="100"></path>
+                    <line class="gauge-needle" id="gauge-needle" x1="100" y1="100" x2="100" y2="32"></line>
+                    <circle class="gauge-hub" cx="100" cy="100" r="5"></circle>
+                </svg>
+                <div class="gauge-value" id="gauge-value">0%</div>
+                <div class="gauge-label">Flood risk index</div>
+            </div>
+        </div>
+
+        <div class="stat-grid" id="stat-grid"></div>
+
+        <div class="result-footer">
+            <button class="btn-ghost" id="reset-btn" type="button">Run another reading</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  console.log("Flood Prediction System Loaded Successfully");
+
+  initTheme();
+  initRain();
+  initLightning();
+  initPredictForm();
+});
+
+/* =========================================================
+   Light / dark theme toggle
+   ========================================================= */
+function initTheme() {
+  var root = document.documentElement;
+  var toggle = document.getElementById("theme-toggle");
+  var stored = localStorage.getItem("flood-theme");
+  var preferred = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+
+  applyTheme(preferred);
+
+  if (!toggle) return;
+
+  toggle.addEventListener("click", function () {
+    var current = root.getAttribute("data-theme") === "light" ? "light" : "dark";
+    var next = current === "light" ? "dark" : "light";
+    applyTheme(next);
+    localStorage.setItem("flood-theme", next);
+  });
+
+  function applyTheme(theme) {
+    root.setAttribute("data-theme", theme);
+    var icon = toggle ? toggle.querySelector(".theme-toggle-icon") : null;
+    if (icon) icon.textContent = theme === "light" ? "☀️" : "🌙";
+  }
+}
+
+/* =========================================================
+   Ambient rain canvas
+   ========================================================= */
+function initRain() {
+  var canvas = document.getElementById("rain-canvas");
+  if (!canvas) return;
+
+  var ctx = canvas.getContext("2d");
+  var intensity = document.body.getAttribute("data-rain") || "normal";
+  var countMap = { light: 60, normal: 120, heavy: 220 };
+  var speedMap = { light: 4, normal: 7, heavy: 11 };
+  var dropCount = countMap[intensity] || 120;
+  var baseSpeed = speedMap[intensity] || 7;
+
+  var windEnabled = document.body.getAttribute("data-wind") !== "off";
+  var ripplesEnabled = document.body.getAttribute("data-ripples") !== "off";
+
+  var width, height, drops, windLines, ripples, rippleTimer;
+
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+
+  function makeDrop() {
+    return {
+      x: Math.random() * width,
+      y: Math.random() * height,
+      len: 10 + Math.random() * 18,
+      speed: baseSpeed + Math.random() * 6,
+      drift: 1.2 + Math.random() * 0.8,
+      opacity: 0.12 + Math.random() * 0.25
+    };
+  }
+
+  function makeWindLine() {
+    return {
+      x: Math.random() * width,
+      y: Math.random() * height * 0.6,
+      len: 60 + Math.random() * 130,
+      speed: 2 + Math.random() * 4,
+      opacity: 0.05 + Math.random() * 0.10
+    };
+  }
+
+  function spawnRipple() {
+    if (!ripplesEnabled) return;
+    ripples.push({
+      x: Math.random() * width,
+      y: height * (0.72 + Math.random() * 0.24),
+      radius: 1,
+      maxRadius: 12 + Math.random() * 16,
+      opacity: 0.3
+    });
+  }
+
+  function init() {
+    resize();
+    drops = [];
+    for (var i = 0; i < dropCount; i++) drops.push(makeDrop());
+
+    windLines = [];
+    if (windEnabled) {
+      for (var w = 0; w < 16; w++) windLines.push(makeWindLine());
+    }
+
+    ripples = [];
+    if (ripplesEnabled) {
+      clearInterval(rippleTimer);
+      rippleTimer = setInterval(spawnRipple, 280);
+    }
+  }
+
+  function drawRain() {
+    ctx.strokeStyle = "rgba(180, 210, 230, 1)";
+    ctx.lineCap = "round";
+
+    for (var i = 0; i < drops.length; i++) {
+      var d = drops[i];
+      ctx.globalAlpha = d.opacity;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - d.drift * 2, d.y + d.len);
+      ctx.stroke();
+
+      d.x -= d.drift;
+      d.y += d.speed;
+
+      if (d.y > height || d.x < 0) {
+        d.x = Math.random() * width;
+        d.y = -20;
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawWind() {
+    if (!windEnabled) return;
+    ctx.strokeStyle = "rgba(180, 210, 230, 1)";
+    ctx.lineWidth = 1;
+
+    for (var i = 0; i < windLines.length; i++) {
+      var w = windLines[i];
+      ctx.globalAlpha = w.opacity;
+      ctx.beginPath();
+      ctx.moveTo(w.x, w.y);
+      ctx.lineTo(w.x - w.len, w.y + w.len * 0.06);
+      ctx.stroke();
+
+      w.x += w.speed;
+      w.y += w.speed * 0.04;
+
+      if (w.x - w.len > width) {
+        w.x = -w.len;
+        w.y = Math.random() * height * 0.6;
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawRipples() {
+    if (!ripplesEnabled) return;
+    ctx.lineWidth = 1.1;
+
+    for (var i = ripples.length - 1; i >= 0; i--) {
+      var r = ripples[i];
+      ctx.globalAlpha = r.opacity;
+      ctx.strokeStyle = "rgba(150, 200, 220, 1)";
+      ctx.beginPath();
+      ctx.ellipse(r.x, r.y, r.radius, r.radius * 0.35, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      r.radius += 0.6;
+      r.opacity -= 0.01;
+
+      if (r.radius >= r.maxRadius || r.opacity <= 0) {
+        ripples.splice(i, 1);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function tick() {
+    ctx.clearRect(0, 0, width, height);
+    drawWind();
+    drawRain();
+    drawRipples();
+    requestAnimationFrame(tick);
+  }
+
+  window.addEventListener("resize", resize);
+  init();
+  requestAnimationFrame(tick);
+}
+
+/* =========================================================
+   Occasional lightning flash
+   ========================================================= */
+function initLightning() {
+  var flash = document.querySelector(".lightning-flash");
+  if (!flash) return;
+
+  var enabled = document.body.getAttribute("data-lightning") !== "off";
+  if (!enabled) return;
+
+  function scheduleFlash() {
+    var delay = 6000 + Math.random() * 10000;
+    setTimeout(function () {
+      flash.classList.add("flash");
+      setTimeout(function () {
+        flash.classList.remove("flash");
+        scheduleFlash();
+      }, 600);
+    }, delay);
+  }
+  scheduleFlash();
+}
+
+/* =========================================================
+   Gauge — animates needle + arc fill on the result panel
+   ========================================================= */
+function renderGauge(panel, value, risk) {
+  var fill = document.getElementById("gauge-fill");
+  var needle = document.getElementById("gauge-needle");
+  var valueLabel = document.getElementById("gauge-value");
+
+  var color = risk === "high" ? "var(--danger)" : (risk === "moderate" ? "#f5c542" : "var(--safe)");
+  var offset = 100 - value;
+  var angle = -90 + (value / 100) * 180;
+
+  panel.setAttribute("data-risk", risk);
+  panel.setAttribute("data-value", value);
+
+  requestAnimationFrame(function () {
+    setTimeout(function () {
+      if (fill) {
+        fill.style.stroke = color;
+        fill.style.strokeDashoffset = offset;
+      }
+      if (needle) {
+        needle.style.transform = "rotate(" + angle + "deg)";
+      }
+      if (valueLabel) valueLabel.textContent = Math.round(value) + "%";
+    }, 100);
+  });
+}
+
+/* =========================================================
+   Prediction form — client-side demo prediction
+   (swap this for the real /predict POST once the Flask
+   model endpoint is wired up)
+   ========================================================= */
+function initPredictForm() {
+  var form = document.getElementById("predict-form");
+  var resultPanel = document.getElementById("result-panel");
+  var resetBtn = document.getElementById("reset-btn");
+  if (!form || !resultPanel) return;
+
+  var fieldIds = ["Temp", "Humidity", "CloudCover", "Annual", "JanFeb", "MarMay", "JunSep", "OctDec", "AvgJune", "Sub"];
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+
+    var values = {};
+    var valid = true;
+
+    fieldIds.forEach(function (id) {
+      var input = document.getElementById(id);
+      var num = parseFloat(input.value);
+      if (input.value.trim() === "" || isNaN(num)) {
+        input.classList.add("invalid");
+        valid = false;
+      } else {
+        input.classList.remove("invalid");
+        values[id] = num;
+      }
+    });
+
+    if (!valid) return;
+
+    var prediction = predictFlood(values);
+    showResult(prediction, values);
+  });
+
+  resetBtn.addEventListener("click", function () {
+    resultPanel.classList.remove("show");
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  function predictFlood(v) {
+    // Rough, non-scientific scoring — nudges a random baseline using the
+    // rainfall/humidity/cloud inputs so the result feels responsive,
+    // then classifies it. Good enough for a demo; not a real model.
+    var rainSignal = (v.Annual / 30) + (v.JunSep / 8) + (v.Sub / 15);
+    var atmosphereSignal = (v.Humidity * 0.4) + (v.CloudCover * 0.3);
+    var base = (rainSignal + atmosphereSignal) / 3;
+    var noise = (Math.random() - 0.5) * 40;
+    var score = Math.max(2, Math.min(98, base * 0.5 + noise + Math.random() * 20));
+
+    var risk = "low";
+    if (score >= 66) risk = "high";
+    else if (score >= 38) risk = "moderate";
+
+    return { score: score, risk: risk };
+  }
+
+  function showResult(prediction, values) {
+    var badge = document.getElementById("risk-badge");
+    var badgeText = document.getElementById("risk-badge-text");
+    var verdict = document.getElementById("result-verdict");
+    var copy = document.getElementById("result-copy");
+    var statGrid = document.getElementById("stat-grid");
+
+    var copyMap = {
+      low: "Based on the readings you entered, rising-water risk looks limited for this period. Keep an eye on forecasts if conditions change.",
+      moderate: "Readings suggest a moderate chance of rising water. Worth monitoring local advisories over the next few days.",
+      high: "These readings point to a high chance of flooding. Consider checking official flood warnings for your area."
+    };
+    var verdictMap = {
+      low: "Conditions look manageable",
+      moderate: "Keep a cautious eye on this one",
+      high: "Elevated flood risk detected"
+    };
+
+    badge.className = "risk-badge " + (prediction.risk === "moderate" ? "high" : prediction.risk);
+    badgeText.textContent = prediction.risk.charAt(0).toUpperCase() + prediction.risk.slice(1) + " risk";
+    verdict.textContent = verdictMap[prediction.risk];
+    copy.textContent = copyMap[prediction.risk];
+
+    statGrid.innerHTML = "";
+    var statDefs = [
+      ["Temperature", values.Temp + " °C"],
+      ["Humidity", values.Humidity + " %"],
+      ["Cloud cover", values.CloudCover + " %"],
+      ["Annual rainfall", values.Annual + " mm"],
+      ["Jun–Sep rainfall", values.JunSep + " mm"],
+      ["Sub-division rainfall", values.Sub + " mm"]
+    ];
+    statDefs.forEach(function (pair) {
+      var el = document.createElement("div");
+      el.className = "stat";
+      el.innerHTML = '<span class="stat-label">' + pair[0] + '</span><span class="stat-value">' + pair[1] + '</span>';
+      statGrid.appendChild(el);
+    });
+
+    resultPanel.classList.add("show");
+    renderGauge(resultPanel, prediction.score, prediction.risk);
+    resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+</script>
+<footer class="site-footer">
+    <span>© 2026 Flood Prediction System</span>
+    <span class="footer-dot">·</span>
+    <span>BUILT BY SARATHI GROUP</span>
+    <span class="footer-dot">·</span>
+    <span>Made with Flask &amp; scikit-learn</span>
+</footer>
+
+</body></html>
